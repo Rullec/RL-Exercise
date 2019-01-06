@@ -239,7 +239,7 @@ def exercise2_5():
 
     params.m = 2000
     params.steps = 1000
-    params.bandit_types = ['sample_average', 'constant_step_size']
+    params.bandit_types = ['sample_average', 'constant_step_size', 'optimistic_init']
 
     ARs = []
     POAs = []
