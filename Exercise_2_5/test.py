@@ -238,7 +238,7 @@ def exercise2_5():
     params = Params()
 
     params.m = 2000
-    params.steps = 100
+    params.steps = 1000
     params.bandit_types = ['sample_average', 'constant_step_size']
 
     ARs = []

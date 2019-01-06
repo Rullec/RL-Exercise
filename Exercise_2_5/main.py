@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class Paras:
-    def __init__(self, _armNumber, _banditNum, _epsilon, _epoches, _banditType):
+    def __init__(self, _armNumber, _banditNum, _epsilon, _epoches, _stepsize,_banditType):
         # bandit arms' number
         self.armNumber = _armNumber
 
@@ -15,6 +15,9 @@ class Paras:
         # running epoches
         self.epochNumber = _epoches
 
+        # stepsize for weighted average
+        self.stepsize = _stepsize
+
         # bandit problem algorithm type
         self.banditType = _banditType
 
@@ -23,7 +26,7 @@ class BanditMachine:
     Including different tpyes of bandit algorithm
 
     """
-    def __init__(self, _banditType, _armNumber, _banditNumber, _epsilon):
+    def __init__(self, _banditType, _armNumber, _banditNumber, _epsilon, _stepsize):
 
         # bandit problem type
         self.banditType = _banditType
@@ -37,6 +40,9 @@ class BanditMachine:
         # epsilon greedy percent
         self.epsilon = _epsilon
 
+        # stepsize for weighted average
+        self.stepsize = _stepsize
+
         # estimated reward
         self.q = np.zeros((self.banditNumber, self.armNumber))
 
@@ -45,7 +51,7 @@ class BanditMachine:
 
     def decide(self):
         A = []
-        if "sample_average" == self.banditType:
+        if ("sample_average" == self.banditType) or ("weighted_average" == self.banditType):
             A = [np.argmax(row) if 0 == np.random.binomial(1,self.epsilon) else int(np.random.uniform(0,self.armNumber)) for row in self.q[:,]]
             self.sampleTime = np.reshape([self.sampleTime[i,] + BanditMachine.onehot(self.armNumber,value) for i, value in enumerate(A)], (self.banditNumber, self.armNumber))
 
@@ -56,6 +62,10 @@ class BanditMachine:
     def update(self, reward, action):
         if "sample_average" == self.banditType:
             self.q = np.reshape([row + 1/self.sampleTime[i, action[i]]*(reward[i] - row[action[i]]) * BanditMachine.onehot(self.armNumber, action[i]) for i, row in enumerate(self.q[:,])], (self.banditNumber,self.armNumber))
+
+        if "weighted_average" == self.banditType:
+            # 对于weighted_average这个方法来说，如果一个动作不变动，那Q值需要改变吗?
+            self.q = np.reshape([ row + self.stepsize * (reward[i] - row[action[i]]) * BanditMachine.onehot(self.armNumber, action[i]) for i, row in enumerate(self.q[:, ]) ], (self.banditNumber, self.armNumber))
 
     @staticmethod
     def onehot(length, id):
@@ -83,39 +93,55 @@ class Testbed:
 
 def main():
 
-    paras = Paras(10, 20, 0.1, 10000, 'sample_average')
+    parameter_sample_average = Paras(10, 2000, 0.1, 1000, None, 'sample_average')
 
-    bandit1 = BanditMachine(paras.banditType, paras.armNumber, paras.banditNumber,
-                            paras.epsilon)
+    parameter_weighted_average = Paras(10, 2000, 0.1, 1000, 0.1, 'weighted_average')
 
-    testbed = Testbed(paras.armNumber, paras.banditNumber)
+    bandit1 = BanditMachine(parameter_sample_average.banditType, parameter_sample_average.armNumber, parameter_sample_average.banditNumber,
+                            parameter_sample_average.epsilon, parameter_sample_average.stepsize)
+
+    bandit2 = BanditMachine(parameter_weighted_average.banditType, parameter_weighted_average.armNumber, parameter_weighted_average.banditNumber,
+                            parameter_weighted_average.epsilon, parameter_weighted_average.stepsize)
+
+    testbed = Testbed(parameter_sample_average.armNumber, parameter_sample_average.banditNumber)
 
     # average rewards
-    ARs = []    # average reward
-    POAs = []   # percent of Optimal Actions
-    for i in range(paras.epochNumber):
+    ARs_sample_average = []    # average reward
+    POAs_sample_average = []   # percent of Optimal Actions
+    ARs_weighted_average = []    # average reward
+    POAs_weighted_average = []   # percent of Optimal Actions
 
-        # bandit decide
+    for i in range(parameter_sample_average.epochNumber):
+
+        # sample average bandit
         A = bandit1.decide()
-
-        # testbed give reward, judge POA(), judge AR
         R, if_optimal = testbed.feedback(A)
-        # bandit get reward and
         bandit1.update(R, A)
+        ARs_sample_average.append(np.average(R))
+        POAs_sample_average.append(np.average(if_optimal))
+        print('[sample average] ' + str(i) + ' epoch : average reward = ' + str(np.average(A)) + ' POA : ' + str(np.average(if_optimal)))
+
+        # weighted average bandit
+        A = bandit2.decide()
+        R, if_optimal = testbed.feedback(A)
+        bandit2.update(R, A)
+        ARs_weighted_average.append(np.average(R))
+        POAs_weighted_average.append(np.average(if_optimal))
+        print('[weighted average] ' + str(i) + ' epoch : average reward = ' + str(np.average(A)) + ' POA : ' + str(np.average(if_optimal)))
 
         ## walk for a short distance(normal distribution)
-        testbed.Q += np.random.normal(0, 0.01, (paras.banditNumber, paras.armNumber))
-        ARs.append(np.average(R))
-        POAs.append(np.average(if_optimal))
-        print(str(i) + ' epoch : average reward = ' + str(np.average(A)) + ' POA : ' + str(np.average(if_optimal)))
+        testbed.Q += np.random.normal(0, 0.01, (parameter_sample_average.banditNumber, parameter_sample_average.armNumber))
+
 
     plt.figure(0)
-    plt.plot(ARs, label='sample average')
+    plt.plot(ARs_sample_average, label='sample average')
+    plt.plot(ARs_weighted_average, label='weighted average')
     plt.title('average reward')
     plt.legend(loc='best')
 
     plt.figure(1)
-    plt.plot(POAs, label = 'sample average')
+    plt.plot(POAs_sample_average, label = 'sample average')
+    plt.plot(POAs_weighted_average, label='weighted average')
     plt.title('% optimal actions')
     plt.legend(loc='best')
 
