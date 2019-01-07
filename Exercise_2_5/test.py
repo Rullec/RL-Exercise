@@ -239,7 +239,7 @@ def exercise2_5():
 
     params.m = 2000
     params.steps = 1000
-    params.bandit_types = ['sample_average', 'constant_step_size', 'optimistic_init']
+    params.bandit_types = ['ucb', 'constant_step_size']
 
     ARs = []
     POAs = []
@@ -254,7 +254,7 @@ def exercise2_5():
         POA = []
 
         # Set up the algorithm
-        bandit = Bandit(bandit_type, params.k, params.epsilon, params.m, params.alpha)
+        bandit = Bandit(bandit_type, params.k, params.epsilon, params.m, params.alpha, 1)
 
         for i in range(params.steps):
             print('step: ' + str(i))
@@ -263,7 +263,7 @@ def exercise2_5():
             print(np.average(R))
             # Collect rewards and compute the percentage of optimal values
             AR.append(np.average(R))
-            print(np.average(R))
+            print(np.average([100 if value == np.argmax(bandit.q_star[i, :]) else 0 for i, value in enumerate(A)]))
             POA.append(np.average([100 if value == np.argmax(bandit.q_star[i, :]) else 0 for i, value in enumerate(A)]))
 
             # Change a little the true value of every arm of every bandit
