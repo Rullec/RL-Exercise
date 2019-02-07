@@ -7,6 +7,7 @@ from mpl_toolkits.mplot3d import Axes3D
 ACTION_HIT = 0
 ACTION_STAND = 1
 DISCOUNT = 0.9
+PLAYER_POLICY = None
 
 def get_card():
     '''
@@ -17,46 +18,72 @@ def get_card():
     card_value = min(10, raw_card_value)
     return card_value
 
-def play(player_policy, dealer_policy):
+def play(player_policy, dealer_policy, init_status = None, init_action = None):
     '''
     :param player_policy: typical player for this task
     :param dealer_policy: dealer for this task
+    :param init_status: if you need to select init status by yourself, you can pass in this para
+    and the format is init_status = (player_sum, player_ace_use, dealer_card1)
+    :param init_action: ACTION_HIT or ACTION_STAND for the player
     :return: trajectory([state-action pairs]), reward
     '''
 
     # =================initialize begin===================
-
-    # init player
     player_ace_use = False
     player_sum = 0
-    while player_sum < 12:
-        card = get_card()
-        if 1 == card and player_ace_use is False:
-            player_ace_use = True
-            card = 11
-        player_sum += card
-
-    if player_sum > 21:
-        assert 22 == player_sum
-        assert player_ace_use is True
-        player_sum -= 10
-        player_ace_use = False
-
-    # init dealer
     dealer_ace_use = False
     dealer_card1 = get_card()
     dealer_card2 = get_card()
     dealer_sum = 0
-    dealer_card1_value = dealer_card1
-    dealer_card2_value = dealer_card2
-    if 1 in (dealer_card1, dealer_card2):
-        dealer_ace_use = True
-        if 1 == dealer_card1:
-            dealer_card1_value = 11
-        if 1 == dealer_card2 and 1 != dealer_card1:
-            dealer_card2_value = 11
-    dealer_sum = dealer_card1_value + dealer_card2_value
 
+    if init_action is None and init_status is None:
+        # init player
+        player_ace_use = False
+        player_sum = 0
+        while player_sum < 12:
+            card = get_card()
+            if 1 == card and player_ace_use is False:
+                player_ace_use = True
+                card = 11
+            player_sum += card
+
+        if player_sum > 21:
+            assert 22 == player_sum
+            assert player_ace_use is True
+            player_sum -= 10
+            player_ace_use = False
+
+        # init dealer
+        dealer_ace_use = False
+        dealer_card1 = get_card()
+        dealer_card2 = get_card()
+        dealer_card1_value = dealer_card1
+        dealer_card2_value = dealer_card2
+        if 1 in (dealer_card1, dealer_card2):
+            dealer_ace_use = True
+            if 1 == dealer_card1:
+                dealer_card1_value = 11
+            if 1 == dealer_card2 and 1 != dealer_card1:
+                dealer_card2_value = 11
+        dealer_sum = dealer_card1_value + dealer_card2_value
+
+    elif init_status is not None and init_action is not None:
+        player_sum, player_ace_use, dealer_card1 = init_status
+
+        dealer_ace_use = False
+        dealer_card2 = get_card()
+        dealer_card1_value = dealer_card1
+        dealer_card2_value = dealer_card2
+        if 1 == dealer_card1:
+            dealer_ace_use = True
+            dealer_card1_value = 11
+        if 1 == dealer_card2 and dealer_ace_use is False:
+            dealer_ace_use = True
+            dealer_card2_value = 11
+        dealer_sum = dealer_card2_value + dealer_card1_value
+
+    else:
+        assert False
     # =================init end=================
 
     # game start!
@@ -64,9 +91,13 @@ def play(player_policy, dealer_policy):
 
     # player's turn
     while True:
-        assert player_sum <= 22
-        action = player_policy(player_sum)
-        status = (player_ace_use, player_sum, dealer_card1)
+        assert player_sum < 22
+        status = (player_sum, player_ace_use, dealer_card1)
+        if 0 == len(state_trajectory) and init_action is not None:
+            action = init_action
+        else:
+            action = player_policy(status)
+
         state_trajectory.append([status, action])
         if ACTION_STAND == action:
             break
@@ -106,41 +137,52 @@ def play(player_policy, dealer_policy):
     elif dealer_sum == player_sum:
         return state_trajectory, 0
 
-def player_policy_cur(player_sum):
-    if player_sum > 19:
-        return ACTION_STAND
-    else:
-        return ACTION_HIT
+def player_policy_fix(status):
+    global PLAYER_POLICY
+    assert PLAYER_POLICY is not None
+    assert len(PLAYER_POLICY) == 22
 
-def dealer_policy_cur(dealer_sum):
+    player_sum, _, _ = status
+
+    return PLAYER_POLICY[player_sum]
+
+def player_policy_changing(status):
+    '''
+
+    :param status: (player_sum, player_ace_use, dealer_card1)
+    :return:
+    '''
+
+    global PLAYER_POLICY
+    assert (2, 10, 10) == PLAYER_POLICY.shape
+    player_sum, player_ace_use, dealer_card1 = status
+    return PLAYER_POLICY[int(player_ace_use), player_sum-12, dealer_card1-1]
+
+def dealer_policy(dealer_sum):
     if dealer_sum > 17:
         return ACTION_STAND
     else:
         return ACTION_HIT
 
-    for pac in trajetory:
-        status, action = pac
-        print('status: ' + str(status))
-        print('action: ' + str(action))
-        # print(a, b, c)
-    print('reward: ' + str(reward))
+def monte_carlo_first_visit_only_evaluation(episodes):
+    global PLAYER_POLICY
+    PLAYER_POLICY = np.array([ACTION_STAND if i > 19 else ACTION_HIT for i in range(22)])
 
-def monte_carlo_first_visit(episodes):
     no_ace_status_value_sum = np.zeros([10, 10])
     ace_status_value_sum = np.zeros([10, 10])
     no_ace_status_times = np.ones([10, 10])
     ace_status_times = np.ones([10, 10])
 
     for i in range(episodes):
-        print('-----------episode: ' + str(i))
-        trajetory, reward = play(player_policy_cur, dealer_policy_cur)
+        if i % 10000 == 0:
+            print('episode: ' + str(i))
+        trajetory, reward = play(player_policy_fix, dealer_policy)
         trajetory.reverse()
 
         for pac in trajetory:
             reward = DISCOUNT * reward
             status, action = pac
-            ace, player_sum, dealer_card = status
-            print(pac)
+            player_sum, ace,  dealer_card = status
             if ace is True:
                 ace_status_times[player_sum-12, dealer_card-1] += 1
                 ace_status_value_sum[player_sum-12, dealer_card-1] += reward
@@ -149,9 +191,48 @@ def monte_carlo_first_visit(episodes):
                 no_ace_status_value_sum[player_sum - 12, dealer_card - 1] += reward
     return no_ace_status_value_sum / no_ace_status_times, ace_status_value_sum / ace_status_times
 
+def policy_action_random_generate():
+    '''
+    generate random status and value,
+    :return: (player_sum, player_ace_use, dealer_card1), action
+    '''
+    player_ace_use = False if 1 == np.random.randint(1,3) else True
+    player_sum = np.random.randint(12, 22)
+    dealer_card1 = get_card()
+    action = ACTION_HIT if 1 == np.random.randint(1,3) else ACTION_STAND
+    return (player_sum, player_ace_use, dealer_card1), action
+
+
+def monte_carlo_es(episode):
+    '''
+        Monte Carlo exploring starts
+    :param episode:
+    :return:
+    '''
+    # initialize
+    '''
+    0. status = player_ace_use * player_sum * dealer_card1 = 2 * 10 * 10 = 200
+    1. player's policy, player[status]
+    2. value function for the player, Q[status, 2]
+    3. Returns value for the player, R[status, 2]
+    4. Sample times for the player, Time[status, 2]
+    '''
+    global PLAYER_POLICY
+    PLAYER_POLICY = np.zeros([2, 10, 10], dtype = int)
+    value_func = np.zeros([2, 10, 10, 2], dtype = float)
+    return_value = np.zeros([2, 10, 10, 2], dtype = float)
+    sample_time = np.ones([2, 10, 10, 2], dtype = int)
+
+    # loop begin
+    for i in range(episode):
+        status, action = policy_action_random_generate()
+        tra, rew = play(player_policy_changing, dealer_policy, status, action)
+        print('----------------' + str(i))
+        print(tra)
+        print(rew)
 
 def figure_5_1():
-    no_ace_status_value, ace_status_value = monte_carlo_first_visit(100000)
+    no_ace_status_value, ace_status_value = monte_carlo_first_visit_only_evaluation(100000)
     fig = plt.figure()
 
     ax = Axes3D(fig)
@@ -163,4 +244,9 @@ def figure_5_1():
     ax.plot_surface(X, Y, ace_status_value , rstride=10, cstride=10)
     plt.show()
 
-figure_5_1()
+def figure_5_2():
+    monte_carlo_es(1000)
+
+# figure_5_1()
+
+figure_5_2()
