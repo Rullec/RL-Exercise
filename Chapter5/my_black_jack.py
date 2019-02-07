@@ -220,16 +220,27 @@ def monte_carlo_es(episode):
     global PLAYER_POLICY
     PLAYER_POLICY = np.zeros([2, 10, 10], dtype = int)
     value_func = np.zeros([2, 10, 10, 2], dtype = float)
-    return_value = np.zeros([2, 10, 10, 2], dtype = float)
+    sum_value = np.zeros([2, 10, 10, 2], dtype = float)
     sample_time = np.ones([2, 10, 10, 2], dtype = int)
 
     # loop begin
     for i in range(episode):
         status, action = policy_action_random_generate()
-        tra, rew = play(player_policy_changing, dealer_policy, status, action)
+        tra, reward = play(player_policy_changing, dealer_policy, status, action)
         print('----------------' + str(i))
-        print(tra)
-        print(rew)
+        tra.reverse()
+        for status, action in tra:
+            reward = DISCOUNT * reward
+            player_sum, player_ace_use, dealer_card1 = status
+            player_ace_use = int(player_ace_use)
+            sum_value[player_ace_use, player_sum - 12, dealer_card1 - 1, action] += reward
+            sample_time[player_ace_use, player_sum-12, dealer_card1-1, action] += 1
+
+        # update PLAYER_POLICY
+        value_func = sum_value / sample_time
+        PLAYER_POLICY = np.argmax(value_func, axis = 3)
+
+    return np.max(value_func, axis = 3)
 
 def figure_5_1():
     no_ace_status_value, ace_status_value = monte_carlo_first_visit_only_evaluation(100000)
@@ -245,7 +256,32 @@ def figure_5_1():
     plt.show()
 
 def figure_5_2():
-    monte_carlo_es(1000)
+    value = monte_carlo_es(100000)  # [2, 10, 10]
+    print(value.shape)
+    no_ace_value = value[0, :, :]
+    ace_value = value[1, :, :]
+    print(no_ace_value.shape)
+    print(ace_value.shape)
+
+    fig = plt.figure()
+
+    ax = Axes3D(fig)
+    X = np.array([[j for j in range(10)] for i in range(10)])
+    Y = X.transpose().copy()
+    X += 12
+    Y += 1
+    ax.plot_surface(X, Y, no_ace_value , rstride=10, cstride=10)
+    ax.plot_surface(X, Y, ace_value , rstride=10, cstride=10)
+    plt.show()
+
+    # display optimal policy
+    no_ace_policy = PLAYER_POLICY[0, :, :]
+    ace_policy = PLAYER_POLICY[1, :, :]
+    print(no_ace_policy)
+    # print(no_ace_policy.shape)
+    # ax.plot_surface(X, Y, no_ace_policy , rstride=10, cstride=10)
+    # ax.plot_surface(X, Y, ace_policy , rstride=10, cstride=10)
+    # plt.show()
 
 # figure_5_1()
 
