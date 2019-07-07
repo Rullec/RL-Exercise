@@ -61,7 +61,7 @@ class PGAgent:
         self.loss = -tf.reduce_mean(self.return_ph * log_trajectory_probs)
         
         # train
-        self.train = tf.train.AdamOptimizer(learning_rate = 0.01).minimize(self.loss)
+        self.train = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(self.loss)
 
         # init
         init = tf.global_variables_initializer()

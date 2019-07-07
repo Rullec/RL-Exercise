@@ -1,0 +1,6 @@
+# it is the parameter save file for this model 500
+lr 0.01
+epsilon 0.01
+epsilon_min 0.01
+epsilon_decay 0.995
+
