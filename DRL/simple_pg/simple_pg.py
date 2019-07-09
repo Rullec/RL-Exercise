@@ -5,6 +5,48 @@ import time
 from gym import envs, spaces
 import traceback
 
+'''
+    下面的代码实现了最简单的policy gradient，参考了https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html
+    中的代码，即spinup/examples/pg_math/1_simple_pg.py
+    1. 算法的结构模型:
+        策略梯度(policy gradient)是一种强化学习算法，能够解决控制问题。控制问题的核心目标是得到一个好的控制器(controller)
+        这个controller的输入是当前state,输出是一个action，以此实现对角色的控制目的。
+        什么是好的controller？用MDP的语言来说，就是如果角色服从controller所给出的action建议，那么这个角色的E[R(\tau)]就是很高的
+        
+        强化学习的基础是MDP，强化学习的核心目标是求解最优bellman方程。要求解bellman方程，就要对值函数(Q(s,a)以及V(s))
+        进行估计。每一个值函数V(s)背后都有一个策略作支撑:只有给定策略时，我们才能说他的值函数是多少。
+        估计值函数方法的方法分成两类:
+            1. Monte Carlo采样
+                V(s) = E[R(\tau) | s]
+                Q(s, a) E[R(\tau) | s, a]
+            2. TD法
+                Q(s, a) = Q(s,a) + \alpha(r(s,a) + \gamma max_a{Q(s,a)} - Q(s,a))
+        on policy算法使用Monte Carlo采样估计值函数: 例如PG, VPG等
+        off policy算法使用TD法估计值函数: 例如DQN，DDPG
+
+        在PG算法中，为了求解策略梯度，存在一个log \pi(\theta | a)的求和过程
+        我们需要policy函数进行拟合和优化。在这里，选取神经网络作为policy函数的basis
+        也就是说建立一个含有参数theta的policy网络,之后不断地对其中的参数theta进行优化
+        争取让这个policy变得越来越好，指导获得的return越来越高。
+        loss = -J(\theta) = -E[R(\tau)]
+        
+    2. 算法的执行过程:
+        0. build一个policy网络，这个网络的输入是state，输出是action的概率分布:
+            以CartPole-v0举例，这个问题有3个可能的action:向左、向右、原地不动，即
+            policy网络的输入是当前的state_{4*1}，输出是一个1*3的向量[0.1, 0.7, 0.2]，且sum(向量)=1
+            这个向量中的三个float，就是采取对应action的概率。
+            网络由2层FC组成;网络的loss = J(\theta)，对J(\theta)求导得到的正好是策略梯度。
+            关于loss的构建和策略梯度究竟是如何计算的，看"Part 3-1 Intro to Policy Optimization"第二部分
+        
+        1. while True:
+            采样1个episode，得到所有的state-action对
+            例如，在本次采样episode中，经过了179个s-a对(称之为transition)
+            则全部送入网络，进行policy gradient的下降、训练
+            返回采样步骤，不断训练。
+        
+        
+'''
+
 class PGAgent:
 
     def __init__(self):
@@ -50,11 +92,11 @@ class PGAgent:
         self.action_layer = tf.squeeze(tf.random.categorical(logits = self.output_layer, num_samples = 1), axis = 1)    #shape = (?, 1)
         # self.action_layer = tf.random.categorical(logits = self.output_layer, num_samples = 1)    # shape = (?, )
         
-        # 计算batchsize个轨迹(traject)的概率
+        # 计算batchsize个轨迹(trajectory)的概率
         self.action_ph = tf.placeholder(dtype = tf.int32, shape = (None, ), name = "action_placeholder")
         self.return_ph = tf.placeholder(dtype = tf.float32, shape = (None, ), name = "return_placeholder")
         action_mask = tf.one_hot(self.action_ph, self.action_dim, name = "action_mask")
-        log_trajectory_probs = tf.reduce_mean(action_mask * tf.nn.log_softmax(self.output_layer),axis=1)# 这些轨迹发生的概率的log是什么
+        log_trajectory_probs = tf.reduce_sum(action_mask * tf.nn.log_softmax(self.output_layer), axis=1)# 这些轨迹发生的概率的log是什么
         # tf.shape(log_trajectory_probs) = (batch_size, )
 
         # 计算loss: 需要乘以return

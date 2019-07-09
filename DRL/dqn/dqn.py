@@ -9,6 +9,33 @@ from tensorflow.keras.optimizers import Adam
 import os
 import sys
 
+'''
+    基础知识请参看simple_pg.py
+    下面的代码实现了DQN，详细推导请参看"Q-learning(DQN)"笔记。
+
+    DQN(Deep Q Network)是一种off-policy强化学习算法，使用TD方法来对(action)值函数进行估计。
+    1. 算法的结构模型:
+        DQN算法，顾名思义，就是使用神经网络来拟合action value function。
+        网络输入: state 网络输出: Q(s,a)
+        只要获得这样一个网络，就可以 action = argmax_a Q(s,a)进行控制了。
+        loss定义: 全盘照抄Tabular TD，loss是TD error的L2 norm，即:
+        w是网络权重，也可以理解成是函数拟合中的基函数参数:
+        Loss(w) = ||r_t + \gamma max_a(Q(s',a', w)) - Q(s, a, w)||^2
+
+        HINT: Deepmind提出的DQN，本身是存在2个打破数据相关性的trick的:
+        1. 设置replay buffer，每次从中random一个batch的数据进行利用
+        2. 存在两个网络。一个是DQN主网络，输入state输出Q(s,a)向量(对该state所有的action的Q(s,a)，所以输出是个向量)
+                另一个是结构、输入输出维度和DQN主网络完全相同的、只有参数不同的Target Network
+                用于计算TD target(这也是他使用TD方法来对值函数估计的最明显证据)
+                为了提高训练稳定性，每10步把DQN主网络的权重拷贝到target network中。平时targe network的权重fixed。
+        本实现中只有1，没有2(为了简便)
+
+    2. 算法的learn过程
+        1. 采样一个episode/或多个，放入buffer中
+        2. 从buffer中random一个batch的数据，送入网络中进行训练
+        3. 不断循环这个过程                
+'''
+
 log_file_path = "logs/dqn.train.log"
 if os.path.exists(log_file_path) == True:
     os.remove(log_file_path)
