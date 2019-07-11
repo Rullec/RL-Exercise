@@ -39,6 +39,9 @@ import sys
 log_file_path = "logs/dqn.train.log"
 if os.path.exists(log_file_path) == True:
     os.remove(log_file_path)
+if os.path.exists(log_file_path.split("/")[0]) == False:
+    os.mkdir(log_file_path.split("/")[0])
+
 
 class DQNAgent:
     def __init__(self):
@@ -53,7 +56,6 @@ class DQNAgent:
         self.cur_epoch = 0
         return
     
-    
     def create_env(self, env_name = "CartPole-v1"):
         try:
             gym.envs.register(
@@ -63,12 +65,12 @@ class DQNAgent:
             reward_threshold=-110.0,
             )
             self.env = gym.make(env_name)
-            self.env._max_episode_steps = 5000
+            self.env._max_episode_steps = 50
 
             self.state_dims = self.env.observation_space.shape[0]
             self.action_dims = self.env.action_space.n
             self.env.reset()
-
+            
         except Exception as e:
             traceback.print_exc(e)
             print("[error] the name of env is %s" % env_name)
@@ -181,18 +183,23 @@ class DQNAgent:
         state = self.env.reset()
         state = np.reshape(state, [1, self.state_dims])
         train_loss = []
+        batch_reward = []
 
         # loop to the end of episode
         while True:
             # get action
             action = self.get_action(state)
             assert type(action) == int
+            # print(len(train_loss))
 
             # act in the env
             next_state, reward, done, _ = self.env.step(action)
             next_state = np.reshape(next_state, [1, self.state_dims])
+            batch_reward.append(reward)
+
+
             if done == True:
-                reward = -10.0
+                reward = 10.0
             
             # put into buffer
             self.remember(action, state, next_state, reward)
@@ -211,13 +218,13 @@ class DQNAgent:
                 break
 
         info = "epoch %d: loss: %.3f avg_return: %.3f eps = %.3f" % \
-            (self.cur_epoch, np.mean(train_loss), len(train_loss), self.epsilon) 
+            (self.cur_epoch, np.mean(train_loss), np.mean(batch_reward), self.epsilon) 
         print(info)
         global log_file_path
         with open(log_file_path, 'a') as f:
             f.write(info + "\n")
 
-        return np.mean(train_loss), len(train_loss)
+        return np.mean(train_loss), np.mean(batch_reward)
 
     def test(self):
         '''
@@ -258,21 +265,21 @@ class DQNAgent:
 if __name__ =="__main__":
     tf.compat.v1.logging.set_verbosity(tf.logging.ERROR)
     DQN = DQNAgent()
-    DQN.create_env("CartPole-v0")
+    DQN.create_env("MountainCar-v0")
     DQN.build_network(lr = 0.001)
     epochs = 100000
 
     # read saved model
-    read_model_path = "./dqn/models/915/915" # 读取模型用这个
-    # read_model_path = None    # 从头训练用这个
+    # read_model_path = "./dqn/models/915/915" # 读取模型用这个
+    read_model_path = None    # 从头训练用这个
     if read_model_path is None:
-        save_model_threshold = 100 # 保存model的最低return门槛
-        max_ret = 100
+        save_model_threshold = -200 # 保存model的最低return门槛
+        max_ret = -200
     else:
         save_model_threshold = DQN.load(read_model_path)
         max_ret = save_model_threshold
         print("load %s succ" % read_model_path)
-    ret_threshold = 100
+    ret_threshold = -200
     
 
     # train out model
@@ -282,7 +289,7 @@ if __name__ =="__main__":
 
         # if the return is quite high, save it
         if ret > max_ret and ret > ret_threshold:
-            path = "./models/" + str(ret) +"/" + str(ret)
+            path = "./models_moutaincar/" + str(ret) +"/" + str(ret)
             DQN.save(path)
             print(path + " saved")
             max_ret = ret

@@ -1,0 +1,9 @@
+nohup: 忽略输入
+WARNING: Logging before flag parsing goes to stderr.
+W0709 21:00:35.607080 140540090226496 deprecation_wrapper.py:119] From a2c.py:375: The name tf.logging.ERROR is deprecated. Please use tf.compat.v1.logging.ERROR instead.
+
+2019-07-09 21:00:35.946582: I tensorflow/core/platform/cpu_feature_guard.cc:142] Your CPU supports instructions that this TensorFlow binary was not compiled to use: AVX2 FMA
+2019-07-09 21:00:35.969572: I tensorflow/core/platform/profile_utils/cpu_utils.cc:94] CPU Frequency: 4200000000 Hz
+2019-07-09 21:00:35.969975: I tensorflow/compiler/xla/service/service.cc:168] XLA service 0x561010d2e480 executing computations on platform Host. Devices:
+2019-07-09 21:00:35.969996: I tensorflow/compiler/xla/service/service.cc:175]   StreamExecutor device (0): <undefined>, <undefined>
+2019-07-09 21:00:35.976998: W tensorflow/compiler/jit/mark_for_compilation_pass.cc:1412] (One-time warning): Not using XLA:CPU for cluster because envvar TF_XLA_FLAGS=--tf_xla_cpu_global_jit was not set.  If you want XLA:CPU, either set that envvar, or use experimental_jit_scope to enable XLA:CPU.  To confirm that XLA is active, pass --vmodule=xla_compilation_cache=1 (as a proper command-line flag, not via TF_XLA_FLAGS) or set the envvar XLA_FLAGS=--xla_hlo_profile.

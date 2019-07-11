@@ -157,6 +157,7 @@ class Critic:
         assert len(episode_action) == len(episode_return)
         # assert type(episode_action[0]) == int
         # assert episode_next_state[0].shape == (1, self.state_dims)
+        
         assert type(episode_return[0]) == float
         assert episode_state[0].shape == (self.state_dims, )
 
@@ -223,7 +224,7 @@ class A2CAgent:
     def get_epsilon(self):
         return self.actor.get_epsilon()
 
-    def _create_env(self, env_name = "CartPole-v0"):
+    def _create_env(self, env_name = "MountainCar-v0"):#"CartPole-v0"):
         try:
             gym.envs.register(
             id='CartPoleExtraLong-v0',
@@ -258,11 +259,23 @@ class A2CAgent:
         episode_reward = []
         episode_next_state = []
 
-        while True:
+        
+
+        for _ in range(999):
             # act in the env
             action = self.get_action(state)
             assert type(action) == int
             next_state, reward, done, _ = self.env.step(action)
+
+            
+            # adjust reward
+            # print(reward)
+            if self.env.unwrapped.spec.id == "MountainCar-v0":
+                if next_state[0] > 0:
+                    reward += 1
+
+            if type(reward) == np.float64:
+                reward = float(reward)
 
             # store
             episode_state.append(state)
@@ -279,7 +292,7 @@ class A2CAgent:
         # train model
         self.train_one_step(episode_state, episode_action, episode_reward, episode_next_state)
         
-        return len(episode_action), self.get_epsilon()
+        return np.sum(episode_reward), self.get_epsilon()
 
     def train_one_step(self, episode_state, episode_action, episode_reward, episode_next_state):
         assert type(episode_state) == list
@@ -366,11 +379,11 @@ if __name__ == "__main__":
 
     # read saved model
     
-    read_model_path = "./models/81/81" # 读取模型用这个
-    # read_model_path = None    # 从头训练用这个
+    # read_model_path = "./models/81/81" # 读取模型用这个
+    read_model_path = None    # 从头训练用这个
     if read_model_path is None:
-        save_model_threshold = 100 # 保存model的最低return门槛
-        max_ret = 100
+        save_model_threshold = -1000 # 保存model的最低return门槛
+        max_ret = -1000
     else:
         save_model_threshold = a2c.load(read_model_path)
         max_ret = save_model_threshold
@@ -381,16 +394,20 @@ if __name__ == "__main__":
         ret, eps = a2c.learn()
         ret_list.append(ret)
 
-        if i % 50 == 0:
+        if i % 5 == 0:
             mean_list  = np.mean(np.array(ret_list))
             print("epoch %d: return %.2f, eps %.3f " % (i, mean_list, eps))
             ret_list.clear()
-            if mean_list > 150:
+            if mean_list > 999:
                 a2c.test()
             
             if ret > max_ret:
                 path = "./models/" + str(ret) +"/" + str(ret)
-                os.makedirs("./models/"+str(ret)+"/")
+                try:
+                    os.makedirs("./models/"+str(ret)+"/")
+                except Exception as e:
+                    print(e)
+                    pass
                 a2c.save(path)
                 print(path + " saved")
                 max_ret = ret
@@ -399,30 +416,15 @@ if __name__ == "__main__":
 
 
 # import numpy as np
-
-# state_dims = 10
-# action_dims = 4
-# units = 24
-# lr = 0.001
-
-# model = tf.keras.Sequential()
-# model.add(Dense(units, input_dim = state_dims, activation="relu"))
-# model.add(Dense(action_dims, activation = "linear"))
-# model.compile(loss = "mse", optimizer = Adam(lr = lr))
-
-# # generate data
-# input_data = []
-# for i in range(32):
-#     input_data.append(np.random.random_sample([1, state_dims]))
-# input_data = np.array(input_data).reshape([32, -1])
-# output_data = np.random.random_sample(action_dims)
-# print(input_data)
-# print(model.predict(input_data))
-# action_dims = 3
-# log = np.zeros(action_dims)
-# pro = [0.1, 0.1, 0.80000]   # 求和必须是1
-# for i in range(100000):
-#     action = np.random.choice(np.arange(action_dims), 1, p = pro)[0]
-#     # print(action)
-#     log[action] += 1
-# print(log)
+# import gym
+# env = gym.make("MountainCar-v0")
+# state = env.reset()
+# print(env.action_space.n)
+# while True:
+#     env.render()
+#     action = 2
+#     state, rew, done, _ = env.step(action)
+#     print(state, rew, done)
+    
+#     if done:
+#         break
