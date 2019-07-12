@@ -5,7 +5,7 @@ class Critic:
     '''
 
     '''
-    def __init__(self, units, state_dims, action_dims, lr, gamma, replacement_dict, sess):
+    def __init__(self, state_dims, action_dims, lr, gamma, replacement_dict, sess):
         # init var
         self.state_dims = state_dims
         self.action_dims = action_dims
@@ -14,19 +14,13 @@ class Critic:
         self.sess = sess
 
         # replacement policy 
-        self.update_target_way = replacement_dict["name"]
-        if self.update_target_way == "hard":
-            self.update_target_iter = replacement_dict["rep_iter_critic"]
-            self.update_target_iter_cur = 1
-        elif replacement_dict["name"] == "soft":
-            self.update_target_tau = replacement_dict["tau"]
-        else:
-            assert 0==1,"the replacement policy setting is illegal"
+
+        self.update_target_tau = replacement_dict["tau"]
 
         # build network
-        self._build_network(units = units)
+        self._build_network()
 
-    def _build_network(self, units):
+    def _build_network(self):
         '''
             critic网络: 
                 输入: state + action
@@ -57,17 +51,9 @@ class Critic:
 
         # 定义target replacement
         # 定义参数replace过程(就是用actor参数覆盖target参数)
-        self.para_replacement = []
-        if self.update_target_way == "hard":
-            if self.update_target_iter_cur % self.update_target_iter == 0:
-                self.para_replacement = [tf.assign(t, e) for t, e in zip(self.t_params, self.e_params)]
-
-        elif self.update_target_way == "soft":
-            self.para_replacement = [tf.assign(t,
-                (1 - self.update_target_tau) * t + self.update_target_tau * e)
-                for t, e in zip(self.t_params, self.e_params)]
-        else:
-            assert ValueError, "the update way is illegal"
+        self.para_replacement = [tf.assign(t,
+            (1 - self.update_target_tau) * t + self.update_target_tau * e)
+            for t, e in zip(self.t_params, self.e_params)]
                 
     def _build_single_net(self, input_s, input_a, scope_name, trainable):
         init_w = tf.random_normal_initializer(0.0, 0.3)
@@ -116,14 +102,10 @@ class Critic:
         batch_dq_da = np.squeeze(np.array(batch_dq_da), axis=0)
 
         # 更新参数
-        if self.update_target_way == "hard":
-            self.update_target_iter_cur += 1
-            if self.update_target_iter_cur % self.update_target_iter == 0:
-                self.sess.run(self.para_replacement)
-        elif self.update_target_way == "soft":
-            self.sess.run(self.para_replacement)
-        else:
-            assert 0 == 1, "replacement illegal"
+        # p1 = self.sess.run(self.t_params)
+        self.sess.run(self.para_replacement)
+        # p2 = self.sess.run(self.e_params)
+        # print(np.array(p1) - np.array(p2))
 
         assert batch_dq_da.shape == (batch_size, self.action_dims)
         return batch_dq_da

@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 
 class Actor:
-    def __init__(self, units, state_dims, action_dims,\
+    def __init__(self, state_dims, action_dims,\
          replacement_dict, action_low_bound, action_high_bound,\
               lr, max_explore_iter, sess):
         
@@ -27,9 +27,9 @@ class Actor:
             assert ValueError, "the policy is illegal"
 
         # build network
-        self._build_network(units = units, )
+        self._build_network()
 
-    def _build_network(self, units):
+    def _build_network(self):
         '''
             actor网络:
             input: s, state_dims
@@ -37,12 +37,10 @@ class Actor:
             arch: 2 FC layers
         '''
         self.input = tf.placeholder(dtype = tf.float32, shape=(None, self.state_dims), name="input_state")
-        # 获得外界传来的...dq/da，用于求解策略梯度
         self.dqda = tf.placeholder(dtype = tf.float32, shape = (None, self.action_dims), name ="input_dqda")
 
+        # eval network
         self.eval_output = self._build_single_net(self.input, "eval_net", trainable = True)
-
-        # 这是eval网络的参数
         self.e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="Actor/eval_net")
         
         # 定义loss
@@ -52,26 +50,14 @@ class Actor:
         with tf.variable_scope("actor_train"):
             opt = tf.train.AdamOptimizer(self.lr)
             self.train_op = opt.apply_gradients(zip(self.policy_grads, self.e_params))
-
-        # 定义target 网络        
+     
+        # target network
         self.target_output = self._build_single_net(self.input, "target_net", trainable = False)
-        
-        # target 网络的参数
         self.t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="Actor/target_net")
 
         # 定义参数replace过程(就是用actor参数覆盖target参数)
-        self.para_replacement = []
-        if self.update_target_way =="hard":
-            left = self.update_target_iter_cur % self.update_target_iter
-            if left == 0:
-                self.para_replacement = [tf.assign(t, e) for t, e in zip(self.t_params, self.e_params)]
-        elif self.update_target_way == "soft":
-            self.para_replacement = [
-                tf.assign(t, (1 - self.update_target_tau) * t + self.update_target_tau * e)
-                for t, e in zip(self.t_params, self.e_params)
-            ]
-        else:
-            assert ValueError, "the update way is illegal"
+        self.para_replacement = [tf.assign(t, (1 - self.update_target_tau) * t + self.update_target_tau * e)
+                                for t, e in zip(self.t_params, self.e_params)]
 
     def _build_single_net(self, input, scope_name, trainable):
         # input placeholder
@@ -123,19 +109,12 @@ class Actor:
             self.dqda: dqda
         })
         
-        # 更新target 网络
-        if self.update_target_way == "hard":
-            self.update_target_iter_cur += 1
-            if self.update_target_iter_cur % self.update_target_iter == 0:
-                self.sess.run(self.para_replacement)
-        elif self.update_target_way == "soft":
-            # print("tau update %.3f" % self.update_target_tau)
-            self.sess.run(self.para_replacement)
-        else:
-            assert 0 == 1, "replacement illegal"
+        # 更新replacement
+        # saved1 = self.sess.run(self.t_params)
+        self.sess.run(self.para_replacement)
+        # saved2 = self.sess.run(self.t_params)
+        # print(np.array(saved1) - np.array(saved2))
         
-
-
     def get_target_action(self, state):
         '''
             输入state, 要求输出targe action,也就是让target network forward propogation
