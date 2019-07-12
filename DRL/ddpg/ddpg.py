@@ -1,9 +1,15 @@
-import numpy as numpy
+import numpy as np
 import tensorflow as tf
 import gym
 import traceback
 from collections import deque
 import os
+from actor import Actor
+from critic import Critic
+import random
+import time
+import matplotlib.pyplot as plt
+
 '''
     下面的代码将实现一个DDPG算法(Deep Deterministic Policy Gradient)的agent。
     这种方法和以前的实现不同: 他可以用于连续行为空间的控制(continuous action space)
@@ -33,14 +39,12 @@ import os
             所以在训练DDPG这一应用了actor-critic原则、使用TD法来估计Q(s,a)的值中的actor时
             就必然涉及对Q网络的传播: 在这个传播过程中我们手动fix critic网络，不让他移动。
             而把train 主critic网络的任务分到另一个部分
-        - 主网络critic训练: 和传统的Q网络训练的方法是一样的。
+        - 主网络critic训练: 和传统的Q网络训练的方法几乎一样，唯一区别在于主网络的训练多需要一个q(s_, a_), 此时a_要从actor中来
     
     3. 一些澄清:
         由于我们使用TD来估计值，那么我们就不需要等episode跑完之后才能计算return进而估计梯度了。
         我们会在每一个transition结束时，训练一次critic,训练一次actor。每次训练都从buffer中抽一个minibatch
         每次运行完一个transition，都把这个transition存到buffer里面去。
-
-    
 '''
 log_dir = "logs/"
 log_name = "a2c.train.log"
@@ -51,237 +55,43 @@ if False == os.path.exists(log_dir):
 if os.path.exists(log_path):
     os.remove(log_path)
 
-class Actor:
-    def __init__(self, units, state_dims, action_dims, replacement_dict, action_low_bound, action_high_bound, lr, epsilon, \
-        epsilon_decay, epsilon_min):
-        
-        # importane variables
-        self.state_dims = state_dims
-        self.action_dims = action_dims
-        self.lr = lr
-        self.epsilon = epsilon
-        self.epsilon_decay = epsilon_decay
-        self.epsilon_min = epsilon_min
-        self.action_low_bound = action_low_bound    # the action is a real number, the upper bound is XX
-        self.action_high_bound = action_high_bound        # and the lower bound is XX
-        
-        # replacement policy
-        self.update_target_way = replacement_dict["name"]
-        if self.update_target_way == "hard":
-            self.update_target_iter = replacement_dict["rep_iter_actor"]
-            self.update_target_iter_cur = 1
-        elif replacement_dict["name"] == "soft":
-            self.update_target_tau = replacement_dict["tau"]
-        else:
-            assert ValueError, "the policy is illegal"
-
-        # build network
-        self._build_network(units = units, )
-
-    def _build_network(self, units):
-        '''
-            actor网络:
-            input: s, state_dims
-            output: a , real number
-            arch: 2 FC layers
-        '''
-        self.input = tf.placeholder(dtype = tf.float32, shape=(None, self.state_dims), name="input_state")
-        # 获得外界传来的...dq/da，用于求解策略梯度
-        self.dqda = tf.placeholder(dtype = tf.float32, shape = (None, self.action_dims), name ="input_dqda")
-
-        self.eval_output = self._build_single_net(self.input, "eval_net", units)
-
-        # 这是eval网络的参数
-        self.e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="eval_net")
-        
-        # 定义loss
-        with tf.variable_scope("policy_gradient"):    
-            self.policy_grads = tf.gradients(ys = self.dqda, xs = self.e_params, grad_ys = self.dqda)
-
-        with tf.variable_scope("actor_train"):
-            opt = tf.train.AdamOptimizer(-self.lr)
-            self.train_op = opt.apply_gradients(zip(self.policy_grads, self.e_params))
-
-        # 定义target 网络        
-        self.target_output = self._build_single_net(self.input, "target_net", units)
-        
-        # target 网络的参数
-        self.t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="target_net")
-
-        # 定义参数replace过程(就是用actor参数覆盖target参数)
-        self.para_replacement = []
-        if self.update_target_way =="hard":
-            left = self.update_target_iter_cur % self.update_target_iter
-            if left == 0:
-                self.para_replacement = [tf.assign(t, e) for t, e in zip(self.t_params, self.e_params)]
-        elif self.update_target_way == "soft":
-            self.para_replacement = [
-                tf.assign(t, (1 - self.update_target_tau) * t + self.update_target_tau * e)
-                for t, e in zip(self.t_params, self.e_params)
-            ]
-        else:
-            assert ValueError, "the update way is illegal"
-
-    def _build_single_net(self, input, scope_name, units):
-        # input placeholder
-        init_w = tf.random_normal_initializer(0.0, 0.5)
-        init_b = tf.constant_initializer(0.1)
-
-        with tf.variable_scope(scope_name):
-            l1 = tf.layers.dense(inputs = input, 
-                units = units,
-                activation = tf.nn.relu,
-                kernel_initializer = init_w,
-                bias_initializer = init_b,
-                trainable = True,
-                name = "l1",
-                )
-            before_output = tf.layers.dense(inputs = l1, 
-                units = self.action_dims,
-                activation = tf.nn.tanh,
-                kernel_initializer = init_w,
-                bias_initializer = init_b,
-                trainable = True,
-                name = "before_output")
-            # 获得forward propogation的结果以后，网络结构完成
-            output = tf.multiply(before_output, (self.action_high_bound - self.action_low_bound)/2 , name="output_action")
-        return output
-    
-    def train(self):
-        '''
-            this function will train the actor network
-        '''
-        # 更新参数
-        if self.update_target_way == "hard":
-            self.update_target_iter_cur += 1
-        
-        # self.update_target_iter_cur += 1
-
-        pass 
-
-    def get_target_action(self, state):
-        pass
-
-    def get_action(self, state):
-        pass
-    
-class Critic:
-    '''
-
-    '''
-    def __init__(self, units, state_dims, action_dims, lr, gamma, replacement_dict):
-        # init var
-        self.state_dims = state_dims
-        self.action_dims = action_dims
-        self.lr = lr
-        self.gamma = gamma
-
-        # replacement policy 
-        self.update_target_way = replacement_dict["name"]
-        if self.update_target_way == "hard":
-            self.update_target_iter = replacement_dict["rep_iter_critic"]
-            self.update_target_iter_cur = 1
-        elif replacement_dict["name"] == "soft":
-            self.update_target_tau = replacement_dict["tau"]
-        else:
-            assert 0==1,"the replacement policy setting is illegal"
-
-        # build network
-        self._build_network(units = units)
-
-    def _build_network(self, units):
-        '''
-            critic网络: 
-                输入: state + action
-                输出: q(s,a) 一个实数
-                loss: 
-        '''
-        self.input_s = tf.placeholder(dtype = tf.float32, shape = (None, self.state_dims), name = "input_state")
-        self.input_a = tf.placeholder(dtype = tf.float32, shape = (None, self.action_dims), name = "input_action")
-        # create eval net(主网络)
-        self.eval_output = self._build_single_net(self.input_s, self.input_a, units = units, scope_name = "eval_net",
-            trainable = True)
-        self.e_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = "eval_net")
-
-        # create target net(target 网络，不可训练s)
-        self.targe_output = self._build_single_net(self.input_s, self.input_a, units = units, scope_name = "target_net",
-            trainable = False)
-        self.t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = "target_net")
-
-        # 定义loss: \reward + \gamma * Q(s_, \mu(s_)) - Q(s_a)
-        self.q_next = tf.placeholder(dtype = tf.float32, shape = (None, ), name = "q_next")
-        self.reward_ph = tf.placeholder(dtype = tf.float32, shape = (None, ), name = "reward_ph")
-        self.loss = self.reward_ph + self.gamma * self.q_next - self.targe_output
-        self.train_op = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
-
-        # 定义target replacement
-        # 定义参数replace过程(就是用actor参数覆盖target参数)
-        self.para_replacement = []
-        if self.update_target_way == "hard":
-            left = self.update_target_iter_cur % self.update_target_iter
-            if left == 0:
-                self.para_replacement = [tf.assign(t, e) for t, e in zip(self.t_params, self.e_params)]
-        elif self.update_target_way == "soft":
-            self.para_replacement = [
-                tf.assign(t, (1 - self.update_target_tau) * t + self.update_target_tau * e)
-                for t, e in zip(self.t_params, self.e_params)
-            ]
-        else:
-            assert ValueError, "the update way is illegal"
-                
-    def _build_single_net(self, input_s, input_a, units, scope_name, trainable):
-        init_w = tf.random_normal_initializer(0.0, 0.3)
-        init_b = tf.constant_initializer(0.1)
-        with tf.variable_scope(scope_name):
-            with tf.variable_scope("l1"):
-                w1_s = tf.get_variable("w1_s", shape = [self.state_dims, units], 
-                initializer = init_w, trainable=trainable)
-                w1_a = tf.get_variable("w1_a", shape = [self.action_dims, units], 
-                initializer = init_w, trainable=trainable)
-                b1 = tf.get_variable("b1", shape = [1, units], initializer= init_b,\
-                    trainable = trainable)
-                l1 = tf.nn.relu(tf.add(tf.matmul(input_s, w1_s) + tf.matmul(input_a, w1_a)) + b1)
-            
-            with tf.variable_scope("q"):
-                output = tf.layers.dense(name = "output", units = 1, inputs = l1,
-                    trainable = trainable, activation=None, kernel_initializer = init_w,
-                    bias_initializer = init_b)
-        
-        return output
-
 class DDPGAgent:
     def __init__(self):
         # init variables
-        self.gamma = 0.95   # reward decay to return
-        self.epsilon =  1   # exploration percent
-        self.epsilon_decay = 0.995  # decrease the exploration each step
-        self.epsilon_min = 0.01
-        self.buffer = deque(maxlen=10000)    # transition replay buffer
-        self.lr_a = 0.001   # actor 学习率
+        self.gamma = 0.99   # reward decay to return
+        self.max_explore_iter = 20000
+        self.max_len_buffer = 10000
+        self.buffer = deque(maxlen=self.max_len_buffer)    # transition replay buffer
+        self.lr_a = 0.0001   # actor 学习率
         self.lr_c = 0.001   # critic　学习率
         self.cur_epoch = 0  # 初始话epoch个数
+        self.max_episode_step = 200 # 一个回合最多200步
 
         # create env, it must be continuous control problem
         self.env = self.create_env()
 
         # create replacement policy
         replacement = [
-            dict(name='soft', tau = 0.01),
+            dict(name='soft', tau = 0.001),
             dict(name='hard', rep_iter_actor= 600, rep_iter_critic=500)
         ][0]
 
-        # build network
-        '''
-            def __init__(self, units, state_dims, action_dims, replacement_dict,\
-                action_low_bound, action_high_bound, lr=0.001, epsilon=1, \
-                epsilon_decay=0.9995, epsilon_min = 0.01):
-        '''
-        self.actor = Actor(32, self.state_dims, self.action_dims, \
-            replacement, self.action_low_bound, self.action_high_bound,\
-            self.lr_a, self.epsilon, self.epsilon_decay, self.epsilon_min
-        )
-        self.critic = Critic()
+        self.sess = tf.Session()
+        
 
+        # build network
+        with tf.variable_scope("Actor"):
+            self.actor = Actor(32, self.state_dims, self.action_dims, \
+                replacement, self.action_low_bound, self.action_high_bound,\
+                self.lr_a, self.max_explore_iter, self.sess
+            )
+        with tf.variable_scope("Critic"):
+            self.critic = Critic(32, self.state_dims, self.action_dims,\
+                self.lr_c, self.gamma, replacement, self.sess)
+            
+        writer = tf.summary.FileWriter("logs", self.sess.graph)
+        self.sess.run(tf.global_variables_initializer())
+        
         return
     
     def create_env(self, env_name = "Pendulum-v0"):
@@ -294,7 +104,8 @@ class DDPGAgent:
 
             # init
             self.state_dims = env.observation_space.shape[0]
-            self.action_dims = env.action_space.n
+            # self.action_dims = env.action_space.n
+            self.action_dims = 1
             self.action_high_bound = env.action_space.high
             self.action_low_bound = env.action_space.low
             return env
@@ -303,12 +114,13 @@ class DDPGAgent:
             traceback.print_exc(e)
             print("[error] the name of env is %s" % env_name)
 
-
     def remember(self, state, action, reward, next_state):
         # 这次整个网络都用tensorflow写，要求所有传进来的都是numpy
-        assert type(action) == float
-        assert state.shape == (self.state_dims, )
-        assert next_state.shape == (self.state_dims, )
+        # print(type(action))
+        # print(action.shape)
+        assert action.shape == (1, self.action_dims)
+        assert state.shape == (1, self.state_dims)
+        assert next_state.shape == (1, self.state_dims)
         assert type(reward) == float
 
         self.buffer.append((state, action, reward, next_state))
@@ -319,25 +131,123 @@ class DDPGAgent:
         '''
             采一个minibatch然后进行训练
         '''
-        pass
+        # print("replay")
+        # 1. 先采样
+        # t1 = time.time()
+        sample_list = random.sample(self.buffer, batch_size)
+        batch_state, batch_action, batch_reward, batch_next_state = [], [], [], []
+        for state, action ,reward, next_state in sample_list:
+            batch_state.append(state)
+            batch_action.append(action)
+            batch_reward.append(reward)
+            batch_next_state.append(next_state)
+        batch_state = np.reshape(np.array(batch_state), [batch_size, self.state_dims])
+        batch_action = np.reshape(np.array(batch_action), [batch_size, self.action_dims])
+        batch_reward = np.reshape(np.array(batch_reward), [batch_size])
+        batch_next_state = np.reshape(np.array(batch_next_state), [batch_size, self.state_dims])
 
-    def get_action(self):
-        pass
+        assert batch_state.shape == (batch_size, self.state_dims)
+        assert batch_action.shape == (batch_size, self.action_dims)
+        assert batch_reward.shape == (batch_size, )        
+        assert batch_next_state.shape == (batch_size, self.state_dims)
 
-    def learn(self):
-        pass
+
+        # 开始训练critic
+        # 1. 首先要把next_state都给到target actor,得到输出a_
+        batch_next_action = self.actor.get_target_action(batch_next_state)
+        assert batch_next_action.shape == (batch_size, self.action_dims)
+        # 2. 把next_state和next_action送到target critic里，得到输出q'(s_,a_)
+        batch_q_s_a_next = self.critic.get_target_q(batch_next_state, batch_next_action)
+        assert batch_q_s_a_next.shape == (batch_size, )
+        # 3. 然后把他们一起送到critic.learn里面去，进行一次训练，顺便计算一次dqda的梯度
+        dqda = self.critic.train(batch_state, batch_action, batch_reward, batch_q_s_a_next)
+        
+        # print(dqda.shape)
+        # print(dqda.transpose())
+        assert dqda.shape == (batch_size, self.action_dims)
+        
+        # 开始训练actor
+        self.actor.train(batch_state, dqda)
+
+    def get_action(self, state):
+        action = self.actor.get_action(state)
+        assert type(action) == float
+        return action
+
+    def learn(self, batch_size = 64):
+        state = self.env.reset()
+        batch_reward = []
+        for _ in range(self.max_episode_step):
+            action = self.actor.get_action(np.reshape(state, [1, self.state_dims]))
+            next_state, reward, done, _ = self.env.step(action)
+            batch_reward.append(reward)
+
+            # 记忆
+            self.remember(np.reshape(state, [1, self.state_dims]), action, float(reward), np.reshape(next_state, [1, self.state_dims]))
+
+            # 如果满了的话，训练
+            if len(self.buffer) > batch_size:
+                self.replay(batch_size)
+            
+            # 更新状态
+            state = next_state
+
+            # 如果停止了, 退出
+            if done == True:
+                break
+        
+        batch_length = len(batch_reward)
+        batch_sum_reward = np.sum(batch_reward)
+        
+        return batch_length, batch_sum_reward
+
+    def test(self):
+        # print((self.action_low_bound, self.action_high_bound))
+        state = self.env.reset()
+        while True:
+            self.env.render()
+            action = self.actor.get_action(np.reshape(state, [1, self.state_dims]), test = True)
+            # print(action)
+            state, reward, done, _ = self.env.step(action)
+            # print((action, reward))
+            if done :
+                break
+        self.env.close()
     
+    def get_epsilon(self):
+        return self.actor.get_epsilon()
+
     def load(self, name):
         pass
 
     def save(self, name):
         pass
-    
+
+plt.ion()
 if __name__ == "__main__":
     # print("SUCC")
     agent = DDPGAgent()
     epochs = 10000
+    epoch_reward = []
+    epoch_length = []
+    print_gap = 1
+    test_gap = 50
+    for i in range(1, epochs):
+        
+        length, reward = agent.learn(batch_size=256)
+        epoch_reward.append(reward)
+        epoch_length.append(length)
 
-    for i in range(epochs):
-        agent.learn()
-        pass
+        if i % print_gap == 0:
+            print(" epoch %d: reward %.3f, length %.3f, epsilon %.3f" % (i, np.mean(epoch_reward[-print_gap:]), np.mean(epoch_length[-print_gap:]), agent.get_epsilon()))
+
+            # epoch_length.clear()
+            # epoch_reward.clear()
+            
+            plt.plot(epoch_reward)
+            plt.pause(0.1)
+            plt.cla()
+            # plt.show()
+            # plt.close()
+            if reward > -700:
+                agent.test()

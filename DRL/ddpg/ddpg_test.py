@@ -1,4 +1,4 @@
-
+import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
 import gym
@@ -259,6 +259,8 @@ if output_graph:
 
 var = 3# control exploration
 t1 = time.time()
+episode_reward = []
+plt.ion()
 for i in range(max_episodes):
     s = env.reset()
     ep_reward = 0
@@ -274,7 +276,7 @@ for i in range(max_episodes):
         a = np.clip(np.random.normal(a, var), -2, 2)
         s_, r, done, _ = env.step(a)
         # reward被砍掉了/10
-        M.store_transition(s, a, r/10, s_)
+        M.store_transition(s, a, r, s_)
 
         if M.is_full() == True:
             # 只有当满了以后才会开始训练
@@ -303,7 +305,10 @@ for i in range(max_episodes):
             # if ep_reward > -300:
             #     render = True
             break
-    
+    episode_reward.append(ep_reward)
+    plt.plot(episode_reward)
+    plt.pause(0.1)
+    plt.cla()
 print('Running time: ', time.time()-t1)
 
 
