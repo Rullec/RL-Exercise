@@ -1,2 +1,0 @@
-model_checkpoint_path: "DDPG_net_Class.ckpt"
-all_model_checkpoint_paths: "DDPG_net_Class.ckpt"

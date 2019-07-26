@@ -165,6 +165,9 @@ class PGAgent:
         batch_states = np.array(batch_states).reshape(-1, self.state_dim)
         
         batch_returns = np.array(batch_returns)
+        # if np.mean(batch_returns) > 57:
+        #     print(batch_returns)
+        #     print(len(batch_returns))
         # print(batch_states.shape)
         # print(len(batch_states))
         # print(type(batch_actions))
@@ -188,7 +191,7 @@ class PGAgent:
             state, reward, done,_ = self.env.step(action)
             if done == True:
                 break
-
+        self.env.close()
         return
 
 
@@ -196,11 +199,11 @@ if __name__ == "__main__":
     NN = PGAgent()
     NN.create_env()
     NN.build_network(learning_rate=0.1)
-    epochs = 100
+    epochs = 200
 
     for i in range(epochs):
         loss, batch_return = NN.train_one_step(batch_size = 2000)
         
         print("epoch %d: loss: %.3f, avg_return: %.3f" % (i, loss, batch_return))
-        if i % 20 == 0:
+        if i % 10 == 0:
             NN.test()
