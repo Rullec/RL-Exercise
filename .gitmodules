@@ -1,0 +1,6 @@
+[submodule "DRL/third-party-repos/minimalRL"]
+	path = DRL/third-party-repos/minimalRL
+	url = https://github.com/seungeunrho/minimalRL.git
+[submodule "DRL/third-party-repos/Deep-RL-Keras"]
+	path = DRL/third-party-repos/Deep-RL-Keras
+	url = https://github.com/germain-hug/Deep-RL-Keras.git

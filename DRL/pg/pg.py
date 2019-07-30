@@ -20,9 +20,9 @@ import traceback
                 V(s) = E[R(\tau) | s]
                 Q(s, a) E[R(\tau) | s, a]
             2. TD法
-                Q(s, a) = Q(s,a) + \alpha(r(s,a) + \gamma max_a{Q(s,a)} - Q(s,a))
+                Q(s, a) = Q(s, a) + \alpha(r(s,a) + \gamma max_a{Q(s, a)} - Q(s, a))
         on policy算法使用Monte Carlo采样估计值函数: 例如PG, VPG等
-        off policy算法使用TD法估计值函数: 例如DQN，DDPG
+        off policy算法使用TD法估计值函数: 例如DQN(experience)，DDPG
 
         在PG算法中，为了求解策略梯度，存在一个log \pi(\theta | a)的求和过程
         我们需要policy函数进行拟合和优化。在这里，选取神经网络作为policy函数的basis
