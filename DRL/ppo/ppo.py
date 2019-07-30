@@ -1,7 +1,8 @@
 import tensorflow as tf
 import numpy as np
 import gym
-
+import os
+import pickle
 '''
     Proximal Policy Optimization(PPO)算法在离散行为空间下的实现
     详细细节请参考笔记"PPO 推导"
@@ -15,31 +16,73 @@ import gym
         使用GAE实现. A(s, a) = \sum_t (\gamma * \lambda)^t \delta_t
             \delta_t = r_t + \gamma * V(s_{t+1}) - V(s_t)
         里面的V使用神经网络输出，训练方法类似DQN，详情见笔记。
+    4. 问题修复:
+        1. 最开始的一组参数有的时候work，有的时候不work: 解决办法: K = 10, lra = 1e-4, lrc=2e-4
+        2. 输出爆炸: 因为除法中的分母可能是0: 需要设置一个下界的1e-5
 '''
 
 class PPOAgent:
     def __init__(self):
         # init paras
         # 这样的参数有的时候会成功，有的时候会失败
-        self.horizon_T = 20 # timestep segements between training
-        self.K = 3         # K epochs in each iter (PPO specified)
-        self.eps = 0.2      # the clip epsilon in surrogate objective
-        self.lr_a = 0.0001  # learning rate for action net
-        self.lr_v = 0.0002  # learning rate for value net
-        self.tau = 0.002    # target net and eval net soft update speed
-        self.gamma = 0.999   # reward -> return decay
-        self.explore_eps = 2.0 # if rand() < explore_eps, take an random action
-        self.explore_eps_decay = 0.99 # decay
-        self.explore_eps_min = 0.05 # min threshold
-        self.lmbda = 0.9    # lambda in GAE
+        self.para_operation(mode="init")
 
         # create env
-        self.env = self._create_env()
+        self.env = self._create_env(self.env_name)
         self.action_dim = self.env.action_space.n
         self.state_dim = self.env.observation_space.shape[0]
         
         # build net
         self._build_network()
+
+    def para_operation(self, mode = "init", name = None):
+        param_num = 12
+        if mode == "init" and name is None:
+            self.env_name = "CartPole-v1"
+            self.horizon_T = 20 # timestep segements between training
+            self.K = 10         # K epochs in each iter (PPO specified)
+            self.eps = 0.2      # the clip epsilon in surrogate objective
+            self.lr_a = 0.0001  # learning rate for action net
+            self.lr_v = 0.0002  # learning rate for value net
+            self.tau = 0.002    # target net and eval net soft update speed
+            self.gamma = 0.999   # reward -> return decay
+            self.explore_eps = 2.0 # if rand() < explore_eps, take an random action
+            self.explore_eps_decay = 0.99 # decay
+            self.explore_eps_min = 0.05 # min threshold
+            self.lmbda = 0.9    # lambda in GAE
+
+        elif mode == "load" and name is not None:
+            config_path = name + ".conf"
+            with open(config_path, "rb") as f:
+                para = pickle.load(f)
+                assert len(para) == param_num
+                self.env_name = para["env_name"]
+                self.horizon_T = para["horizon_T"] # timestep segements between training
+                self.K = para["K"]         # K epochs in each iter (PPO specified)
+                self.eps = para["eps"]    # the clip epsilon in surrogate objective
+                self.lr_a = para["lr_a"]  # learning rate for action net
+                self.lr_v = para["lr_v"]  # learning rate for value net
+                self.tau = para["tau"]    # target net and eval net soft update speed
+                self.gamma = para["gamma"]   # reward -> return decay
+                self.explore_eps = para["explore_eps"] # if rand() < explore_eps, take an random action
+                self.explore_eps_decay = para["explore_eps_decay"] # decay
+                self.explore_eps_min = para["explore_eps_min"] # min threshold
+                self.lmbda = para["lmbda"]    # lambda in GAE
+                print("load conf from %s succ: %s" % (config_path, str(para)))
+
+        elif mode == "save" and name is not None:
+            para = {"env_name": self.env_name, "horizon_T" : self.horizon_T, "K" : self.K,
+                "eps": self.eps, "lr_a" : self.lr_a, "lr_v" : self.lr_v, "tau" : self.tau,
+                "gamma" : self.gamma, "explore_eps" : self.explore_eps, 
+                "explore_eps_decay" : self.explore_eps_decay, "explore_eps_min" : self.explore_eps_min,
+                "lmbda" : self.lmbda}
+            assert len(para) == param_num
+            config_path = name + ".conf"
+            with open(config_path, "wb") as f:
+                pickle.dump(para, f)
+                print("save conf to %s succ" % config_path)
+        else:
+            assert ValueError, "the option is illegal" 
 
     def _build_network(self):
         assert self.state_dim > 0 and self.action_dim > 0 
@@ -56,7 +99,7 @@ class PPOAgent:
             # 制作mask, 正向传播和mask相乘后squeeze，然后和action_prob_old_ph做element wise的除法，得到ratio
             action_mask = tf.one_hot(indices = self.action_ph, depth = self.action_dim, name = "action_mask")
             action_prob_cur = tf.reduce_sum(action_mask * self.output_action_prob, axis = 1)
-            ratio = tf.div(action_prob_cur, self.action_prob_old_ph)
+            ratio = tf.div(action_prob_cur, tf.maximum(self.action_prob_old_ph, 1e-5))
             self.advantage_ph = tf.placeholder(dtype = tf.float32, shape = None, name = "advantage_ph")
 
             # 计算surr1 和 surr2，取min得到最终loss。从而得到train op
@@ -95,33 +138,10 @@ class PPOAgent:
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
 
-    def _create_env(self, env_name="CartPole-v1"):
+    def _create_env(self, env_name):
         env = gym.make(env_name)
         env.reset()
         return env
-        
-    def learn(self, iters = 1500):
-        '''
-            for each iter 1-N
-                (you can also try A3C parallel) multi-workers
-                collect T transitions
-
-                train K epochs(thanks to the clipped objective)
-        '''
-        ret_lst = []
-        print_interval = 20
-        test_threshold = 200.0
-        for i in range(iters):
-            ret, eps = self.train_one_step()
-            ret_lst.append(ret)
-            # print(ret)
-            print("\riter: %d, ret: %.3f, eps: %.3f" % (i, ret, eps), end = '')
-            if i % print_interval == 0:
-                avg_ret = np.mean(ret_lst)
-                print(", avg ret: %.3f" % avg_ret)
-                if avg_ret > test_threshold:
-                    self.test()
-                ret_lst.clear()
 
     def get_action(self, state, test = False):
         assert state.shape == (1, self.state_dim)
@@ -255,23 +275,68 @@ class PPOAgent:
         state = self.env.reset()
         while True:
             self.env.render()
-            action = self.get_action(np.reshape(state, (1, self.state_dim)), test = True)
+            action, _ = self.get_action(np.reshape(state, (1, self.state_dim)), test = True)
             state, reward, done , _ = self.env.step(action)
             if done == True:
                 break
+        self.env.close()
+
+    def learn(self, iters = 1500):
+        '''
+            for each iter 1-N
+                (you can also try A3C parallel) multi-workers
+                collect T transitions
+
+                train K epochs(thanks to the clipped objective)
+        '''
+        ret_lst = []
+        print_interval = 20
+        test_threshold = 200
+        save_threshold = 200
+        for i in range(iters):
+            ret, eps = self.train_one_step()
+            ret_lst.append(ret)
+            print("\riter: %d, ret: %.3f, eps: %.3f" % (i, ret, eps), end = '')
             
-    def save(self):
+            # print avg ret and test
+            if i % print_interval == 0 and i is not 0:
+                avg_ret = np.mean(ret_lst)
+                print(", avg ret: %.3f" % avg_ret)
+                if avg_ret > test_threshold:
+                    self.test()
+                    test_threshold = avg_ret
+                ret_lst.clear()
+            
+                # save model
+                if avg_ret > save_threshold:
+                    model_dir = self.env_name
+                    if os.path.exists(model_dir) is False:
+                        os.mkdir(model_dir)
+                    model_name = os.path.join(model_dir, str(avg_ret))
+                    self.save(model_name)
+                    save_threshold = avg_ret
+
+    def save(self, name):
         # model save 
-        # parameter load
+        saver = tf.train.Saver()
+        saver.save(self.sess, name)
+        self.para_operation(mode = "save", name = name)
+
         # remember to print log
+        print("model saved as %s" % name)
         pass
 
-    def load(self):
+    def load(self, name):
         # model and paras load
+        saver = tf.train.Saver()
+        saver.restore(self.sess, name)
+
+        self.para_operation(mode = "load", name = name)
         # remember to print log
         pass
     
 if __name__ =="__main__":
     print("succ")
     agent = PPOAgent()
+    # agent.load("CartPole-v1/22.523809523809526")
     agent.learn()
