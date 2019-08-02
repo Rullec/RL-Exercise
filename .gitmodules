@@ -4,3 +4,6 @@
 [submodule "DRL/third-party-repos/Deep-RL-Keras"]
 	path = DRL/third-party-repos/Deep-RL-Keras
 	url = https://github.com/germain-hug/Deep-RL-Keras.git
+[submodule "DRL/third-party-repos/pytorch-trpo"]
+	path = DRL/third-party-repos/pytorch-trpo
+	url = https://github.com/ikostrikov/pytorch-trpo.git
