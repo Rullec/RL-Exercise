@@ -97,7 +97,7 @@ class Critic(object):
     def build_train(self,learning_rate=0.001):
         with tf.variable_scope(self.name) as scope:
             Q_expected = tf.placeholder(tf.float32,shape=[None,1])
-            loss = tf.losses.mean_squared_error(Q_expected,self.Q)
+            loss = tf.losses.mean_squared_error(Q_expected, self.Q)
             optimizer = tf.train.AdamOptimizer(learning_rate)
             train_op = optimizer.minimize(loss)
         self.Q_expected, self.train_op = Q_expected, train_op

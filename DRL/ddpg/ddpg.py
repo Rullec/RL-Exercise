@@ -14,12 +14,13 @@ DDPG算法 Deep Deterministic Policy Gradient
     1. example中用的是elu而非relu。elu可以产生负的输出: 改了以后没有变化
     2. 在训练actor网络时，他把输入的梯度除以了batch size，即dqda/dqda.shape[0]: 改了以后没有变化
     3. 对于value network，输入是state和action，我是直接就合成一个输入然后接网络，他是分别先接了一层权重之后再训练的：改了以后没有变化
-    4. placeholder中的shape应该使用[]而非():改了以后试试看： 改了以后不管用...
+    4. placeholder中的shape应该使用[]而非():改了以tf.losses.mean_squared_error后试试看： 改了以后不管用...
     5. 如果以tanh(-1 - 1)为激活函数输出的话，那么action的输出是非法的, 改成sigmoid（0-1）之后: 不管用
     6. 我的replay策略，将一半改为一个batch充满了就好，试试看：不管用
     7. 把init_w和init_b改成contrib中的，试试看: 不管用
     8. 突然发现: get target action中，我拿的是eval，这是一个大错误，改了以后试试: 不管用
-    9. 噪声和探索: 有人说最好使用paramter / action space噪声，而非之前那样随episode提升的探索。管用了！
+    9. 噪声和探索: 有人说最好使用paramter / action space噪声，而非之前那样随episode提升的探索。
+    10. critic loss计算发生广播错误，修正后work
     终于work了!
 '''
 class Actor:
@@ -177,9 +178,8 @@ class Critic:
             self.t_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope = "Critic/target_net")
 
             # 建立loss函数
-            self.reward_ph = tf.placeholder(dtype = tf.float32, shape = None, name = "reward_ph")
-            self.q_s_a_target_next = tf.placeholder(dtype = tf.float32, shape = [None, self.action_dims], name = "q_s_a_target_next")
-            loss = tf.squeeze(tf.squared_difference(self.reward_ph + self.gamma * self.q_s_a_target_next, self.output_eval_q))
+            self.q_expected = tf.placeholder(dtype = tf.float32, shape = [None, 1], name = "q_expected")
+            loss = tf.squeeze(tf.squared_difference(self.q_expected, self.output_eval_q))
             self.train_op = tf.train.AdamOptimizer(self.lr_c).minimize(loss)
             
             # 求dqda
@@ -210,7 +210,7 @@ class Critic:
                 kernel_initializer = init_w, bias_initializer = init_b, trainable = trainable,
                 name = "l2")
             
-            output = tf.layers.dense(inputs = l2, units = self.action_dims, activation = None,
+            output = tf.layers.dense(inputs = l2, units = 1, activation = None,
                 kernel_initializer = init_w, bias_initializer = init_b, trainable = trainable,
                 name = "output")
 
@@ -223,11 +223,13 @@ class Critic:
         assert reward.shape == (state.shape[0], )
         assert q_target_next.shape == (state.shape[0], self.action_dims)
 
+        # print("q_target_next shape %s" % str(q_target_next.shape))
+        q_expected = self.gamma * q_target_next + np.reshape(reward, (q_target_next.shape[0], 1))
+        assert q_expected.shape == (state.shape[0], 1)
         loss = self.sess.run(self.train_op, feed_dict={
             self.input_action: action,
             self.input_state: state,
-            self.reward_ph : reward,
-            self.q_s_a_target_next: q_target_next
+            self.q_expected: q_expected
         })
 
     def replace_target(self):
@@ -286,7 +288,6 @@ class DDPGAgent:
 
         # 当前第几次训练?
         self.cur_iter = 0
-        self.total_explore_iter = 10000
 
     def create_env(self, env_name = "Pendulum-v0"):
         try:
@@ -335,6 +336,8 @@ class DDPGAgent:
         # 2. 把next_state和next_action送到target critic里，得到输出q'(s_,a_)
         batch_q_s_a_next = self.critic.get_target_q_s_a(batch_next_state, batch_next_action)
         assert batch_q_s_a_next.shape == (batch_size, self.action_dims)
+        # 这里有一个加法的操作, 构建TD target
+        # Qexpected_batch = reward_batch + gamma*Q_next # target Q value
         # 3. 然后把他们一起送到critic.learn里面去，进行一次训练，顺便计算一次dqda的梯度
         self.critic.train(batch_state, batch_action, batch_reward, batch_q_s_a_next)
         dqda = self.critic.get_dqda(batch_state, batch_action)
@@ -351,11 +354,11 @@ class DDPGAgent:
         self.actor.replace_target()
         self.critic.replace_target()
 
-    def learn(self, batch_size = 64):
+    def learn(self, batch_size = 256):
         self.cur_epoch += 1
         state = self.env.reset()
         states, next_states, rewards, actions = [], [], [], []
-        for _ in range(200):
+        while True:
             self.cur_iter += 1
             # action = self.actor.get_action(np.reshape(state, [1, self.state_dims]), 1 - (self.cur_iter / self.total_explore_iter))
             action = self.actor.get_action(np.reshape(state, [1, self.state_dims]))
@@ -366,16 +369,15 @@ class DDPGAgent:
             rewards.append(reward)
             self.remember((state, action, reward, next_state))
 
-            # 更新
-            state = next_state
-
             # 训练
             self.replay(batch_size)
 
-            print("iter %d, epoch %d" % (self.cur_iter, self.cur_epoch))
+            print("\riter %d, epoch %d" % (self.cur_iter, self.cur_epoch), end = '')
             # 退出
             if done == True:
                 break
+            else:
+                state = next_state
         print(", reward %.3f" % np.sum(rewards))
 
 if __name__ == "__main__":

@@ -39,14 +39,14 @@ class PPOAgent:
         param_num = 12
         if mode == "init" and name is None:
             self.env_name = "CartPole-v1"
-            self.horizon_T = 20 # timestep segements between training
+            self.horizon_T = 40 # timestep segements between training
             self.K = 10         # K epochs in each iter (PPO specified)
             self.eps = 0.2      # the clip epsilon in surrogate objective
             self.lr_a = 0.0001  # learning rate for action net
             self.lr_v = 0.0002  # learning rate for value net
             self.tau = 0.002    # target net and eval net soft update speed
             self.gamma = 0.999   # reward -> return decay
-            self.explore_eps = 2.0 # if rand() < explore_eps, take an random action
+            self.explore_eps = 5.0 # if rand() < explore_eps, take an random action
             self.explore_eps_decay = 0.99 # decay
             self.explore_eps_min = 0.05 # min threshold
             self.lmbda = 0.9    # lambda in GAE
