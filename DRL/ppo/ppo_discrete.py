@@ -13,12 +13,13 @@ import pickle
         loss = clipped surrogate objective, 见笔记
              = min(r * A, clip(r, 1-eps, 1+eps) * A)
     3. advantage function实现方法:
-        使用GAE实现. A(s, a) = \sum_t (\gamma * \lambda)^t \delta_t
+        使用GAE实现. A(s_t, a_t) = \sum_t (\gamma * \lambda)^t \delta_t
             \delta_t = r_t + \gamma * V(s_{t+1}) - V(s_t)
         里面的V使用神经网络输出，训练方法类似DQN，详情见笔记。
     4. 问题修复:
         1. 最开始的一组参数有的时候work，有的时候不work: 解决办法: K = 10, lra = 1e-4, lrc=2e-4
         2. 输出爆炸: 因为除法中的分母可能是0: 需要设置一个下界的1e-5
+        3. GAE中的lambda选0.9的话有时会失败，选择为0.95以后就好了。[现在还不知道为什么]
 '''
 
 class PPOAgent:
@@ -49,7 +50,7 @@ class PPOAgent:
             self.explore_eps = 5.0 # if rand() < explore_eps, take an random action
             self.explore_eps_decay = 0.99 # decay
             self.explore_eps_min = 0.05 # min threshold
-            self.lmbda = 0.9    # lambda in GAE
+            self.lmbda = 0.95    # lambda in GAE
 
         elif mode == "load" and name is not None:
             config_path = name + ".conf"
@@ -336,7 +337,6 @@ class PPOAgent:
         pass
     
 if __name__ =="__main__":
-    print("succ")
     agent = PPOAgent()
     # agent.load("CartPole-v1/22.523809523809526")
     agent.learn()
