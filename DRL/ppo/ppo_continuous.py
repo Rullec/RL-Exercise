@@ -54,7 +54,7 @@ class PPOAgent:
         param_num = 12
         if mode == "init" and name is None:
             self.env_name = "Pendulum-v0"
-            self.horizon_T = 20 # timestep segements between training
+            self.horizon_T = 40 # timestep segements between training
             self.K = 5         # K epochs in each iter (PPO specified)
             self.eps = 0.2      # the clip epsilon in surrogate objective
             self.lr_a = 0.0001  # learning rate for action net
@@ -99,28 +99,28 @@ class PPOAgent:
         else:
             assert ValueError, "the option is illegal" 
 
-    def _change_action_prob(self, action_dist, action, eps):
-            low_prob = action_dist.cdf(self.action_low_bound)
-            up_prob = 1 - action_dist.cdf(self.action_high_bound)
-            output_action_prob = action_dist.prob(action) + eps
+    # def _change_action_prob(self, action_dist, action, eps):
+    #         low_prob = action_dist.cdf(self.action_low_bound)
+    #         up_prob = 1 - action_dist.cdf(self.action_high_bound)
+    #         output_action_prob = action_dist.prob(action) + eps
             # 如果action的概率=-2，那么他发生的概率是p(x<-2)
-            # 如果action的概率=2, 那么他发生的概率是p(x>2)
-            # 所有等于其上界的action对应位置的prob全部变成0，然后再用1的相加
-            mask_eq_upper_bound = tf.math.less(tf.abs(self.output_action - self.action_high_bound), tf.ones_like(self.output_action) * eps) # =2的是1
-            mask_eq_lower_bound = tf.math.less(tf.abs(self.output_action - self.action_low_bound), tf.ones_like(self.output_action) * eps) # =-2的是1
-            mask_eq_lower_bound_not = tf.math.logical_not(mask_eq_lower_bound)
-            mask_eq_upper_bound_not = tf.math.logical_not(mask_eq_upper_bound)
-            # change to tf.float32
-            print(type(mask_eq_lower_bound))
-            print(type(mask_eq_lower_bound_not))
-            mask_eq_lower_bound = tf.cast(mask_eq_lower_bound, tf.float32)
-            mask_eq_lower_bound_not = tf.cast(mask_eq_lower_bound_not, tf.float32)
-            mask_eq_upper_bound = tf.cast(mask_eq_upper_bound, tf.float32)
-            mask_eq_upper_bound_not = tf.cast(mask_eq_upper_bound_not, tf.float32)
-            # none
-            output_action_prob = tf.multiply(mask_eq_upper_bound_not, output_action_prob) + tf.multiply(up_prob, mask_eq_upper_bound)
-            output_action_prob = tf.multiply(mask_eq_lower_bound_not, output_action_prob) + tf.multiply(low_prob, mask_eq_lower_bound)
-            return output_action_prob
+            # # 如果action的概率=2, 那么他发生的概率是p(x>2)
+            # # 所有等于其上界的action对应位置的prob全部变成0，然后再用1的相加
+            # mask_eq_upper_bound = tf.math.less(tf.abs(self.output_action - self.action_high_bound), tf.ones_like(self.output_action) * eps) # =2的是1
+            # mask_eq_lower_bound = tf.math.less(tf.abs(self.output_action - self.action_low_bound), tf.ones_like(self.output_action) * eps) # =-2的是1
+            # mask_eq_lower_bound_not = tf.math.logical_not(mask_eq_lower_bound)
+            # mask_eq_upper_bound_not = tf.math.logical_not(mask_eq_upper_bound)
+            # # change to tf.float32
+            # print(type(mask_eq_lower_bound))
+            # print(type(mask_eq_lower_bound_not))
+            # mask_eq_lower_bound = tf.cast(mask_eq_lower_bound, tf.float32)
+            # mask_eq_lower_bound_not = tf.cast(mask_eq_lower_bound_not, tf.float32)
+            # mask_eq_upper_bound = tf.cast(mask_eq_upper_bound, tf.float32)
+            # mask_eq_upper_bound_not = tf.cast(mask_eq_upper_bound_not, tf.float32)
+            # # none
+            # output_action_prob = tf.multiply(mask_eq_upper_bound_not, output_action_prob) + tf.multiply(up_prob, mask_eq_upper_bound)
+            # output_action_prob = tf.multiply(mask_eq_lower_bound_not, output_action_prob) + tf.multiply(low_prob, mask_eq_lower_bound)
+            # return output_action_prob
 
     def _build_network(self):
         assert self.state_dim > 0 and self.action_dim > 0 
@@ -132,31 +132,41 @@ class PPOAgent:
             l1 = tf.layers.dense(inputs = self.input_state_ph, units = 32, activation = tf.nn.relu, name = "l1")
             l2 = tf.layers.dense(inputs = l1, units = 64, activation = tf.nn.relu, name = "l2")
             # mean在范围内变化, sigma在0-无穷变化
-            self.output_mean = tf.add(tf.multiply(\
-                tf.layers.dense(inputs = l2, units = self.action_dim, activation = tf.nn.sigmoid),\
-                     self.action_high_bound - self.action_low_bound), self.action_low_bound, name = "l3_mean")
+            # self.output_mean = tf.add(tf.multiply(\
+            #     tf.layers.dense(inputs = l2, units = self.action_dim, activation = tf.nn.sigmoid),\
+            #          self.action_high_bound - self.action_low_bound), self.action_low_bound, name = "l3_mean")
+            self.output_mean = tf.layers.dense(inputs = l2, units = self.action_dim, activation = None, name = "l3_mean")
             self.output_std = tf.layers.dense(inputs = l2, units = self.action_dim, activation = tf.nn.softplus, name = "l3_std")
+            # 计算prob
+            self.action_dist = tfp.distributions.Normal(loc = self.output_mean, scale = self.output_std)
+            self.output_action = tf.squeeze(self.action_dist.sample(1), axis = 0)
+            self.output_action_prob = self.action_dist.prob(self.output_action) + eps
+            # add summary
             tf.summary.histogram('mean', self.output_mean)
             tf.summary.histogram('std', self.output_std)
-            # 然后需要从这个地方采样得到clip后的action
-            action_dist = tfp.distributions.Normal(loc = self.output_mean, scale = self.output_std)
-            self.sample_res = tf.squeeze(action_dist.sample(1), axis = 0)
-            self.output_action = tf.clip_by_value(self.sample_res, clip_value_min = self.action_low_bound, clip_value_max = self.action_high_bound)
-            self.output_action_prob = self._change_action_prob(action_dist, self.output_action, eps)
-            
+            # tf.summary.scalar('mean', self.output_mean)
+            # tf.summary.scalar('output_action', self.output_action)
+            # tf.summary.scalar('output_action_prob', self.output_action_prob)
+
+
             # 定义loss
             self.action_ph = tf.placeholder(dtype = tf.float32, shape = [None, 1], name = "action_ph")
-
-            self.output_action_prob_cur = self._change_action_prob(action_dist, self.action_ph, eps)
-
             self.action_prob_old_ph = tf.placeholder(dtype = tf.float32, shape = [None, 1], name = "action_prob_old_ph")
             self.advantage_ph = tf.placeholder(dtype = tf.float32, shape = [None, 1], name="advantage_ph")
+            self.output_action_prob_cur = self.action_dist.prob(self.action_ph, name = "actrion_prob_cur")
             ratio = tf.div(self.output_action_prob_cur, tf.maximum(self.action_prob_old_ph, eps))
 
             # 计算surr1和surr2
             surr1 = ratio * self.advantage_ph
             surr2 = tf.clip_by_value(ratio, clip_value_min = 1 - self.eps, clip_value_max = 1 + self.eps) * self.advantage_ph
-            loss = -tf.minimum(surr1, surr2, name = "clipped_obj")
+            loss_src = -tf.minimum(surr1, surr2, name = "clipped_obj")
+
+            hi_mu_loss = tf.square(tf.maximum(0.0, self.output_mean - self.action_high_bound * 1.1))
+            lo_mu_loss = tf.square(tf.maximum(0.0, self.action_high_bound * 1.1 - self.output_mean))
+            scale_diff = self.action_high_bound - self.action_low_bound
+            sigma_bound = tf.square(tf.maximum(0.0, self.output_std - scale_diff * 2.0))
+            loss_penalty = tf.reduce_sum(hi_mu_loss + lo_mu_loss + sigma_bound, axis=1)
+            loss = loss_src + loss_penalty
             self.train_agent_op = tf.train.AdamOptimizer(self.lr_a).minimize(loss)
 
             # 所有action超过界限的, prob都被设置为eps，
@@ -209,55 +219,43 @@ class PPOAgent:
         assert state.shape[1] == self.state_dim
         state_len = state.shape[0]
 
-        if test is False and np.random.rand() < self.explore_eps:
-            # 测试
-            assert state_len == 1
-            action = np.random.rand() * (self.action_high_bound - self.action_low_bound) + self.action_low_bound
-            action_mean, action_std = self.sess.run([self.output_mean, self.output_std], feed_dict={
-                self.input_state_ph : state
-            })
-            action_prob = np.reshape(np.array([normpdf(action, action_mean[0], action_std[0])]), (state_len, 1))
-            action = np.reshape(np.array(action), (state_len, self.action_dim))
+        # if test is False and np.random.rand() < self.explore_eps:
+        #     # 测试
+        #     assert state_len == 1
+        #     action = np.random.rand() * (self.action_high_bound - self.action_low_bound) + self.action_low_bound
+        #     action_mean, action_std = self.sess.run([self.output_mean, self.output_std], feed_dict={
+        #         self.input_state_ph : state
+        #     })
+        #     action_prob = np.reshape(np.array([normpdf(action, action_mean[0], action_std[0])]), (state_len, 1))
+        #     action = np.reshape(np.array(action), (state_len, self.action_dim))
 
-        else:
+        # else:
 
-            '''
-                self.input_state_ph = tf.placeholder(dtype = tf.float32, shape = [None, self.state_dim], name = "input_state")
-                self.output_mean = tf.add(tf.multiply(\
-                    tf.layers.dense(inputs = l2, units = self.action_dim, activation = tf.nn.sigmoid),\
-                        self.action_high_bound - self.action_low_bound), -self.action_low_bound, name = "l3_mean")
-                self.output_std = tf.layers.dense(inputs = l2, units = self.action_dim, activation = tf.nn.softplus, name = "l3_std")
-                self.output_action = tf.clip_by_value(action_dist.sample([1]) + eps, clip_value_min = self.action_low_bound, clip_value_max = self.action_high_bound)
-                
-                self.output_action_prob = tf.math.multiply(valid_array, output_action_prob)
-            '''
-            mean, std, sample_res, action, action_prob = self.sess.run([self.output_mean, self.output_std, self.sample_res, self.output_action, self.output_action_prob], feed_dict={
-                self.input_state_ph : state
-            })
-            # print("mean %s, mean shape %s" % (str(mean), str(mean.shape)))
-            # print("std %s, std shape %s" % (str(std), str(std.shape)))
-            # print("sample_res %s, sample_res shape %s" % (str(sample_res), str(sample_res.shape)))
-            # print("action %s, action shape %s" % (str(action), str(action.shape)))
-            # print("action_prob %s, action_prob shape %s" % (str(action_prob), str(action_prob.shape)))
-            assert mean.shape == (state_len, 1)
-            assert std.shape == (state_len, 1)
-            assert action.shape == (state_len, self.action_dim)
-            assert action_prob.shape == (state_len, 1)
-            if self.iter % 20 == 0:
-                mean_filename = "mean/mean." + str(self.iter)
-                std_filename = "std/std." + str(self.iter)
-                action_filename = "action/action." + str(self.iter)
-                action_prob_filename = "action_prob/action_prob." + str(self.iter)
-
-                with open(mean_filename, "a+")  as f:
-                    f.write(str(mean) + "\n")
-                with open(std_filename, "a+")  as f:
-                    f.write(str(std) + "\n")
-                with open(action_filename, "a+")  as f:
-                    f.write(str(action) + "\n")
-                with open(action_prob_filename, "a+")  as f:
-                    f.write(str(action_prob) + "\n")
-
+        '''
+            self.input_state_ph = tf.placeholder(dtype = tf.float32, shape = [None, self.state_dim], name = "input_state")
+            self.output_mean = tf.add(tf.multiply(\
+                tf.layers.dense(inputs = l2, units = self.action_dim, activation = tf.nn.sigmoid),\
+                    self.action_high_bound - self.action_low_bound), -self.action_low_bound, name = "l3_mean")
+            self.output_std = tf.layers.dense(inputs = l2, units = self.action_dim, activation = tf.nn.softplus, name = "l3_std")
+            self.output_action = tf.clip_by_value(action_dist.sample([1]) + eps, clip_value_min = self.action_low_bound, clip_value_max = self.action_high_bound)
+            
+            self.output_action_prob = tf.math.multiply(valid_array, output_action_prob)
+        '''
+        mean, std, action, action_prob = self.sess.run([self.output_mean, self.output_std, self.output_action, self.output_action_prob], feed_dict={
+            self.input_state_ph : state
+        })
+        noise = np.random.normal(0, 0.3)
+        action += noise
+        # print("mean %s, mean shape %s" % (str(mean), str(mean.shape)))
+        # print("std %s, std shape %s" % (str(std), str(std.shape)))
+        # print("sample_res %s, sample_res shape %s" % (str(sample_res), str(sample_res.shape)))
+        # print("action %s, action shape %s" % (str(action), str(action.shape)))
+        # print("action_prob %s, action_prob shape %s" % (str(action_prob), str(action_prob.shape)))
+        assert mean.shape == (state_len, 1)
+        assert std.shape == (state_len, 1)
+        assert action.shape == (state_len, self.action_dim)
+        assert action_prob.shape == (state_len, 1)
+            
         return action, action_prob
         
     def train_one_step(self, render = False):
