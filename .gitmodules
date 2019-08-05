@@ -10,3 +10,9 @@
 [submodule "DRL/third-party-repos/ppo-lstm-parallel"]
 	path = DRL/third-party-repos/ppo-lstm-parallel
 	url = https://github.com/jet-black/ppo-lstm-parallel.git
+[submodule "DRL/third-party-repos/ppo"]
+	path = DRL/third-party-repos/ppo
+	url = https://github.com/takuseno/ppo.git
+[submodule "DRL/third-party-repos/PPO"]
+	path = DRL/third-party-repos/PPO
+	url = https://github.com/shareeff/PPO.git

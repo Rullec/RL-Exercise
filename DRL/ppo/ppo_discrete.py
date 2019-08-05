@@ -42,7 +42,7 @@ class PPOAgent:
             self.env_name = "CartPole-v1"
             self.horizon_T = 40 # timestep segements between training
             self.K = 10         # K epochs in each iter (PPO specified)
-            self.eps = 0.2      # the clip epsilon in surrogate objective
+            self.eps = 0.1      # the clip epsilon in surrogate objective
             self.lr_a = 0.0001  # learning rate for action net
             self.lr_v = 0.0002  # learning rate for value net
             self.tau = 0.002    # target net and eval net soft update speed
@@ -132,8 +132,8 @@ class PPOAgent:
                                 for (t, e) in zip(t_params, e_params)]
             self.reward_ph = tf.placeholder(dtype = tf.float32, shape = None, name = "reward_ph")
 
-            loss = tf.reduce_mean(self.reward_ph + self.gamma * self.output_value_gae_target - self.output_value_gae_eval)
-            self.train_value_op = tf.train.AdamOptimizer(self.lr_v).minimize(loss)
+            self.loss_value_net = tf.reduce_mean(tf.math.squared_difference(self.reward_ph + self.gamma * self.output_value_gae_target, self.output_value_gae_eval))
+            self.train_value_op = tf.train.AdamOptimizer(self.lr_v).minimize(self.loss_value_net)
             self.replacement_value_op = replacement
 
         self.sess = tf.Session()
@@ -171,6 +171,7 @@ class PPOAgent:
         state = np.reshape(self.env.reset(), (1, self.state_dim))
         done = False
         return_lst = []
+        loss_value_lst = []
 
         while not done:
             state_lst = []
@@ -219,18 +220,20 @@ class PPOAgent:
                 })
 
                 # train value net
-                self.sess.run(self.train_value_op, feed_dict={
+                _, loss_value = self.sess.run([self.train_value_op, self.loss_value_net], feed_dict={
                     self.input_state_gae_ph : state_lst,
                     self.input_state_gae_target_ph : next_state_lst,
                     self.reward_ph : reward_lst
                 })
+                loss_value_lst.append(loss_value)
+
             self.sess.run(self.replacement_value_op)
             return_lst.append(np.sum(reward_lst))
 
         self.explore_eps = max(self.explore_eps * self.explore_eps_decay, self.explore_eps_min)
         try:
             sum_ret = np.sum(return_lst)
-            return sum_ret, self.explore_eps
+            return sum_ret, self.explore_eps, np.mean(loss_value_lst)
         except Exception as e:
             print(return_lst)
             print(len(return_lst))
@@ -295,9 +298,10 @@ class PPOAgent:
         test_threshold = 200
         save_threshold = 200
         for i in range(iters):
-            ret, eps = self.train_one_step()
+            ret, eps,loss_value_net = self.train_one_step()
             ret_lst.append(ret)
-            print("\riter: %d, ret: %.3f, eps: %.3f" % (i, ret, eps), end = '')
+            print("\riter: %d, ret: %.3f, eps: %.3f, loss_value : %.3f"
+                 % (i, ret, eps, loss_value_net), end = '')
             
             # print avg ret and test
             if i % print_interval == 0 and i is not 0:
